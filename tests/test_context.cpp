@@ -41,11 +41,23 @@ TEST(Context, SwitchBackAndForth) {
     EXPECT_TRUE(finished);
 }
 
+// Each ABI has its own alignment rule, and the forged frame must satisfy it
+// at the moment the trampoline starts:
+//   AArch64: sp is a multiple of 16 at all times, so the saved sp is too.
+//   x86-64:  rsp % 16 == 8 at a function's entry (the call pushed 8 bytes
+//            onto an aligned stack). The return-address slot sits 56 bytes
+//            above the saved rsp and must itself be 16-aligned, hence 8.
 TEST(Context, FirstFrameIsAligned) {
     Stack st(16 * 1024);
     Context c;
     c.make(st, bouncer, nullptr);
-    EXPECT_EQ(reinterpret_cast<std::uintptr_t>(c.sp) % 16, 0u);
+    const auto sp = reinterpret_cast<std::uintptr_t>(c.sp);
+#if defined(__aarch64__)
+    EXPECT_EQ(sp % 16, 0u);
+#elif defined(__x86_64__)
+    EXPECT_EQ(sp % 16, 8u);
+    EXPECT_EQ((sp + 56) % 16, 0u);  // the return-address slot
+#endif
     EXPECT_LT(c.sp, st.top());
     EXPECT_GE(c.sp, st.bottom());
 }
