@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux-x86_64:
+    name: x86-64 ${{ matrix.compiler }} ${{ matrix.mode }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++-14, clang++-18]
+        mode: [Release, Sanitize]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: |
+          if [ "${{ matrix.mode }}" = "Sanitize" ]; then
+            EXTRA="-DCMAKE_BUILD_TYPE=Debug -DFIB_SANITIZE=ON"
+          else
+            EXTRA="-DCMAKE_BUILD_TYPE=Release"
+          fi
+          cmake -S . -B build -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} $EXTRA
+      - name: Build
+        run: cmake --build build -j 4
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j 4
+      - name: Benchmark (x86-64; shared runner, numbers are indicative)
+        if: matrix.mode == 'Release'
+        run: ./build/switch_bench --runs 3 --json bench-x86-${{ matrix.compiler }}.json | tee bench-x86-${{ matrix.compiler }}.md
+      - uses: actions/upload-artifact@v4
+        if: matrix.mode == 'Release'
+        with:
+          name: bench-x86-${{ matrix.compiler }}
+          path: bench-x86-${{ matrix.compiler }}.*
+
+  macos-arm64:
+    name: arm64 Apple clang ${{ matrix.mode }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [Release, Sanitize]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: |
+          if [ "${{ matrix.mode }}" = "Sanitize" ]; then
+            EXTRA="-DCMAKE_BUILD_TYPE=Debug -DFIB_SANITIZE=ON"
+          else
+            EXTRA="-DCMAKE_BUILD_TYPE=Release"
+          fi
+          cmake -S . -B build $EXTRA
+      - name: Build
+        run: cmake --build build -j 3
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j 3
+      - name: Benchmark (arm64; shared runner, numbers are indicative)
+        if: matrix.mode == 'Release'
+        run: ./build/switch_bench --runs 3 | tee bench-arm64.md
